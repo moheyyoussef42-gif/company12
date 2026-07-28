@@ -185,11 +185,25 @@ button {
     min-height: 420px;
     display: flex;
     align-items: center;
-    background-image: url('assets/stadium_bg.jpg');
-    background-size: cover;
-    background-position: center;
     border-bottom: 3px solid var(--primary-green);
     overflow: hidden;
+}
+
+.hero-bg {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 0;
+}
+
+.hero-bg-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    filter: brightness(0.45) saturate(1.05);
+    transform: scale(1.03);
 }
 
 .hero-overlay {
