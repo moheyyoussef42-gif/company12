@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mohey soccer - حجز الملاعب الرياضية</title>
+    <!-- Google Fonts: Cairo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- App Container -->
+    <div class="app-container">
+        
+        <!-- Header -->
+        <header class="main-header">
+            <div class="header-logo">
+                <span class="logo-icon">⚽</span>
+                <h1>Mohey <span>soccer</span></h1>
+            </div>
+            <nav class="header-nav">
+                <button id="btn-admin-portal" class="btn-secondary">
+                    <span class="btn-icon">🔒</span>
+                    بوابة المسؤول
+                </button>
+            </nav>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            
+            <!-- Hero Section -->
+            <section class="hero-section">
+                <div class="hero-overlay"></div>
+                <div class="hero-content">
+                    <span class="badge">احجز الآن</span>
+                    <h2>استمتع باللعب في ملعب احترافي متكامل</h2>
+                    <p>أرضية نجيل صناعي ممتازة، كشافات إضاءة ليلية قوية، وغرف تبديل ملابس.</p>
+                    
+                    <div class="pitch-meta">
+                        <div class="meta-item">
+                            <span class="meta-icon">💰</span>
+                            <div class="meta-text">
+                                <span class="meta-label">سعر الساعة</span>
+                                <span class="meta-value">140 جنيه</span>
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <span class="meta-icon">📍</span>
+                            <div class="meta-text">
+                                <span class="meta-label">الموقع</span>
+                                <span class="meta-value">ملعب محي - طنطا، منطقة الملاحه</span>
+                                <a class="location-link" href="https://maps.app.goo.gl/rL92iZ7eoFdJJRxa9?g_st=ic" target="_blank" rel="noopener noreferrer">فتح على Google Maps</a>
+                            </div>
+                        </div>
+                        <div class="meta-item instapay-meta">
+                            <span class="meta-icon">📱</span>
+                            <div class="meta-text">
+                                <span class="meta-label">رقم انستا باي الدفع</span>
+                                <div class="instapay-number-wrapper">
+                                    <span id="instapay-num" class="meta-value font-monospace">01200422224</span>
+                                    <button id="btn-copy-number" class="btn-copy" title="نسخ الرقم">
+                                        📋 <span class="tooltip-text">نسخ الرقم</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Booking Section -->
+            <section class="booking-section">
+                <div class="section-header">
+                    <h2>📅 جدول المواعيد المتاحة</h2>
+                    <p>اختر اليوم والوقت المناسب لك لبدء الحجز</p>
+                </div>
+
+                <!-- Date Tabs Selector -->
+                <div class="date-tabs-wrapper">
+                    <div id="date-tabs" class="date-tabs">
+                        <!-- Dates will be dynamically populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Status Legend -->
+                <div class="status-legend">
+                    <div class="legend-item">
+                        <span class="legend-color color-available"></span>
+                        <span class="legend-label">متاح للطلب</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color color-pending"></span>
+                        <span class="legend-label">بانتظار التأكيد (دفع معلق)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-color color-booked"></span>
+                        <span class="legend-label">محجوز ومؤكد</span>
+                    </div>
+                </div>
+
+                <!-- Slots Grid -->
+                <div class="slots-container">
+                    <div id="slots-grid" class="slots-grid">
+                        <!-- Slots will be dynamically populated by JS -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Check Booking Status Section -->
+            <section class="status-checker-section">
+                <div class="checker-card">
+                    <div class="checker-header">
+                        <h3>🔍 استعلم عن حالة حجزك</h3>
+                        <p>أدخل رقم هاتفك لعرض حجوزاتك الحالية وحالتها</p>
+                    </div>
+                    <div class="checker-body">
+                        <div class="input-group">
+                            <input type="tel" id="check-phone" placeholder="أدخل رقم الهاتف (مثال: 01xxxxxxxxx)" dir="ltr">
+                            <button id="btn-check-status" class="btn-primary">بحث</button>
+                        </div>
+                        <div id="check-results" class="check-results hidden">
+                            <!-- Status check results will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- Footer -->
+        <footer class="main-footer">
+            <p>© 2026 Mohey soccer. جميع الحقوق محفوظة.</p>
+            <p>للدفع والاستفسار: <span class="highlight">01200422224</span> عبر Instapay</p>
+        </footer>
+
+    </div>
+
+    <!-- MODAL: Booking Form -->
+    <div id="modal-booking" class="modal-overlay hidden">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3>طلب حجز موعد جديد</h3>
+                <button class="modal-close" onclick="closeModal('modal-booking')">×</button>
+            </div>
+            <form id="booking-form" class="modal-body">
+                <div class="selected-details-banner">
+                    <div><strong>التاريخ:</strong> <span id="modal-display-date">---</span></div>
+                    <div><strong>الوقت:</strong> <span id="modal-display-time">---</span></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="booking-name">الاسم بالكامل:</label>
+                    <input type="text" id="booking-name" required placeholder="أدخل اسمك الثلاثي">
+                </div>
+
+                <div class="form-group">
+                    <label for="booking-phone">رقم الهاتف:</label>
+                    <input type="tel" id="booking-phone" required placeholder="أدخل رقم هاتفك للتواصل ومتابعة الحجز" dir="ltr">
+                </div>
+
+                <div class="payment-instructions-box">
+                    <h4>📱 طريقة الدفع عبر Instapay</h4>
+                    <p>يرجى تحويل مبلغ <strong class="highlight">140 جنيه</strong> إلى رقم انستا باي التالي لتأكيد الحجز:</p>
+                    <div class="instapay-copy-box">
+                        <span id="instapay-modal-num" class="font-monospace">01200422224</span>
+                        <button type="button" id="btn-copy-modal-num" class="btn-copy-small">نسخ الرقم</button>
+                    </div>
+                    <p class="warning-text">⚠️ لن يتم تأكيد الحجز من قبل الإدارة إلا بعد إرفاق كود التحويل أدناه وتأكيد عملية الدفع.</p>
+                </div>
+
+                <div class="form-group">
+                    <label for="booking-ref">رقم عملية التحويل (Reference ID / الاسم المحول منه):</label>
+                    <input type="text" id="booking-ref" required placeholder="أدخل الرقم المرجعي للمعاملة أو اسم الحساب المحول منه">
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeModal('modal-booking')">إلغاء</button>
+                    <button type="submit" class="btn-success">إرسال طلب الحجز</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Admin Login -->
+    <div id="modal-admin-login" class="modal-overlay hidden">
+        <div class="modal-container modal-small">
+            <div class="modal-header">
+                <h3>تسجيل دخول المسؤول (الآدمن)</h3>
+                <button class="modal-close" onclick="closeModal('modal-admin-login')">×</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="admin-pin">رمز الدخول السري (PIN):</label>
+                    <input type="password" id="admin-pin" placeholder="••••" style="text-align: center; letter-spacing: 0.5em; font-size: 1.5rem;" dir="ltr">
+                    <p id="admin-login-error" class="error-msg hidden">رمز الدخول غير صحيح!</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeModal('modal-admin-login')">إلغاء</button>
+                    <button id="btn-submit-login" class="btn-primary">دخول</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: Admin Dashboard -->
+    <div id="modal-admin-dashboard" class="modal-overlay hidden">
+        <div class="modal-container modal-large">
+            <div class="modal-header">
+                <div class="admin-title-wrapper">
+                    <h3>👑 لوحة تحكم المسؤول (الآدمن)</h3>
+                    <span class="badge badge-admin">نشط</span>
+                </div>
+                <div class="admin-header-actions">
+                    <button id="btn-admin-logout" class="btn-danger btn-small">تسجيل الخروج</button>
+                    <button class="modal-close" onclick="closeModal('modal-admin-dashboard')">×</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                
+                <!-- Admin Stats -->
+                <div class="admin-stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-icon">🕒</span>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-pending-count">0</span>
+                            <span class="stat-label">حجوزات معلقة للتأكيد</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-icon">✅</span>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-confirmed-count">0</span>
+                            <span class="stat-label">حجوزات مؤكدة</span>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-icon">💰</span>
+                        <div class="stat-info">
+                            <span class="stat-value" id="stat-revenue">0 ج.م</span>
+                            <span class="stat-label">إجمالي الإيرادات المؤكدة</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Day Settings -->
+                <div id="admin-day-settings" class="admin-day-settings">
+                    <h4>إدارة الأيام والتواريخ والمواعيد</h4>
+                    <p class="settings-desc">غيّر الأيام والتواريخ والمواعيد التي تظهر للمستخدمين، وسيتم تطبيقها فورًا على الصفحة.</p>
+                    <div id="admin-settings-panel"></div>
+                </div>
+
+                <!-- Admin Bookings List -->
+                <div class="admin-bookings-section">
+                    <div class="table-header-row">
+                        <h4>📋 قائمة طلبات الحجز المستلمة</h4>
+                        <div class="filter-buttons">
+                            <button class="filter-btn active" data-filter="all">الكل</button>
+                            <button class="filter-btn" data-filter="pending">المعلقة</button>
+                            <button class="filter-btn" data-filter="confirmed">المؤكدة</button>
+                        </div>
+                    </div>
+                    
+                    <div class="table-wrapper">
+                        <table class="bookings-table">
+                            <thead>
+                                <tr>
+                                    <th>العميل</th>
+                                    <th>رقم الهاتف</th>
+                                    <th>الموعد والتاريخ</th>
+                                    <th>إثبات التحويل</th>
+                                    <th>الحالة</th>
+                                    <th>الإجراءات</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-bookings-list">
+                                <!-- Bookings will be populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="toast-notification" class="toast hidden"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
