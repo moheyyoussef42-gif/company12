@@ -27,6 +27,9 @@ if (hasBlob) {
     }
 }
 
+// In-memory cache for blob URLs (avoids eventual consistency delay of list())
+const blobUrlCache = {};
+
 const ensureDataDir = () => {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -63,25 +66,28 @@ const BLOB_PATHS = {
     settings: "data/settings.json"
 };
 
-// Use shorter prefix for listing to match both "data/bookings.json" and "data/bookings-XXX.json"
-const BLOB_PREFIXES = {
-    bookings: "data/bookings",
-    settings: "data/settings"
-};
-
 const readBlobJson = async (key, fallback) => {
     if (!blobClient) return fallback;
     try {
+        // First try the cached URL (fastest, no eventual consistency issue)
+        if (blobUrlCache[key]) {
+            const response = await fetch(blobUrlCache[key], { cache: 'no-store' });
+            if (response.ok) {
+                const text = await response.text();
+                if (text) return JSON.parse(text);
+            }
+        }
+
+        // Fallback: use list() to find the blob
         const { list } = blobClient;
-        // Use the exact path as prefix (no random suffix anymore, so only one file matches)
         const pathname = BLOB_PATHS[key];
         const blobs = await list({ prefix: pathname });
         if (!blobs || blobs.blobs.length === 0) {
             return fallback;
         }
-        // Since we use addRandomSuffix: false, there should be only one blob.
-        // Fetch it with cache: 'no-store' to always get the latest data.
         const latest = blobs.blobs[0];
+        // Cache the URL for next time
+        blobUrlCache[key] = latest.url;
         const response = await fetch(latest.url, { cache: 'no-store' });
         if (!response.ok) return fallback;
         const text = await response.text();
@@ -100,13 +106,18 @@ const writeBlobJson = async (key, data) => {
         const pathname = BLOB_PATHS[key];
         const dataStr = JSON.stringify(data, null, 2);
 
-        // Use fixed path (no random suffix) so the URL is always the same.
-        // Combined with cache: 'no-store' on read, this ensures the latest data is always fetched.
-        await put(pathname, dataStr, {
+        // put() returns the blob URL immediately - save it to cache
+        // so subsequent reads can use it directly without list() (which has eventual consistency delay)
+        const result = await put(pathname, dataStr, {
             access: "public",
             contentType: "application/json",
             addRandomSuffix: false
         });
+
+        // Cache the URL returned by put() for instant reads
+        if (result && result.url) {
+            blobUrlCache[key] = result.url;
+        }
     } catch (error) {
         console.error(`Failed to write blob ${key}:`, error);
     }
