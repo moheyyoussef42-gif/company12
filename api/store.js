@@ -63,18 +63,20 @@ const BLOB_PATHS = {
     settings: "data/settings.json"
 };
 
-// Use shorter prefix for listing
-const BLOB_PREFIXES = {
-    bookings: "data/bookings",
-    settings: "data/settings"
-};
+// Cache for blob URLs (persisted across invocations via environment)
+let blobUrlCache = {};
 
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// Try to load cached URLs from environment (set after first put())
+try {
+    if (process.env.BLOB_URLS) {
+        blobUrlCache = JSON.parse(process.env.BLOB_URLS);
+    }
+} catch (e) {}
 
 const readBlobJson = async (key, fallback, knownUrl) => {
     if (!blobClient) return fallback;
     try {
-        // If we have a known URL, use it directly (fastest, no eventual consistency issue)
+        // Priority 1: Use known URL from client (fastest, no eventual consistency)
         if (knownUrl) {
             const response = await fetch(knownUrl, { cache: 'no-store' });
             if (response.ok) {
@@ -83,30 +85,32 @@ const readBlobJson = async (key, fallback, knownUrl) => {
             }
         }
 
-        // Fallback: use list() to find the latest blob
-        // Retry up to 5 times with 1s delay to handle Blob eventual consistency
-        const { list } = blobClient;
-        const prefix = BLOB_PREFIXES[key];
-        
-        for (let attempt = 0; attempt < 5; attempt++) {
-            const blobs = await list({ prefix });
-            if (blobs && blobs.blobs.length > 0) {
-                // Sort by uploadedAt to get the latest
-                const sorted = [...blobs.blobs].sort((a, b) =>
-                    new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
-                );
-                const latest = sorted[0];
-                const response = await fetch(latest.url, { cache: 'no-store' });
-                if (response.ok) {
-                    const text = await response.text();
-                    if (text) return JSON.parse(text);
-                }
-            }
-            // Wait 1 second before retrying (Blob eventual consistency)
-            if (attempt < 4) {
-                await sleep(1000);
+        // Priority 2: Use cached URL from environment
+        if (blobUrlCache[key]) {
+            const response = await fetch(blobUrlCache[key], { cache: 'no-store' });
+            if (response.ok) {
+                const text = await response.text();
+                if (text) return JSON.parse(text);
             }
         }
+
+        // Priority 3: Use list() as last resort (has eventual consistency delay)
+        const { list } = blobClient;
+        const prefix = BLOB_PATHS[key];
+        const blobs = await list({ prefix });
+        if (blobs && blobs.blobs.length > 0) {
+            const sorted = [...blobs.blobs].sort((a, b) =>
+                new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+            );
+            const latest = sorted[0];
+            blobUrlCache[key] = latest.url;
+            const response = await fetch(latest.url, { cache: 'no-store' });
+            if (response.ok) {
+                const text = await response.text();
+                if (text) return JSON.parse(text);
+            }
+        }
+
         return fallback;
     } catch (error) {
         console.error(`Failed to read blob ${key}:`, error);
@@ -121,12 +125,17 @@ const writeBlobJson = async (key, data) => {
         const pathname = BLOB_PATHS[key];
         const dataStr = JSON.stringify(data, null, 2);
 
-        // Use addRandomSuffix to bypass CDN cache (each write creates a new URL)
+        // Use fixed path (no random suffix) so the URL is always the same
         const result = await put(pathname, dataStr, {
             access: "public",
             contentType: "application/json",
-            addRandomSuffix: true
+            addRandomSuffix: false
         });
+
+        // Cache the URL for this invocation
+        if (result && result.url) {
+            blobUrlCache[key] = result.url;
+        }
 
         return { url: result.url };
     } catch (error) {
