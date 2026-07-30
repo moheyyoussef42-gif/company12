@@ -27,6 +27,16 @@ if (hasBlob) {
     }
 }
 
+// Extract Vercel Blob account name from the token
+// Token format: vercel_blob_rw_<account>_<secret>
+let blobAccount = null;
+if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const parts = process.env.BLOB_READ_WRITE_TOKEN.split("_");
+    if (parts.length >= 4) {
+        blobAccount = parts[3]; // The account name
+    }
+}
+
 const ensureDataDir = () => {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -63,15 +73,13 @@ const BLOB_PATHS = {
     settings: "data/settings.json"
 };
 
-// Cache for blob URLs (persisted across invocations via environment)
-let blobUrlCache = {};
-
-// Try to load cached URLs from environment (set after first put())
-try {
-    if (process.env.BLOB_URLS) {
-        blobUrlCache = JSON.parse(process.env.BLOB_URLS);
-    }
-} catch (e) {}
+// Construct the fixed public URL for a blob
+// Format: https://<account>.public.blob.vercel-storage.com/<path>
+const getBlobPublicUrl = (key) => {
+    if (!blobAccount) return null;
+    const pathname = BLOB_PATHS[key];
+    return `https://${blobAccount}.public.blob.vercel-storage.com/${pathname}`;
+};
 
 const readBlobJson = async (key, fallback, knownUrl) => {
     if (!blobClient) return fallback;
@@ -85,16 +93,17 @@ const readBlobJson = async (key, fallback, knownUrl) => {
             }
         }
 
-        // Priority 2: Use cached URL from environment
-        if (blobUrlCache[key]) {
-            const response = await fetch(blobUrlCache[key], { cache: 'no-store' });
+        // Priority 2: Use fixed public URL (no list() needed, instant consistency)
+        const fixedUrl = getBlobPublicUrl(key);
+        if (fixedUrl) {
+            const response = await fetch(fixedUrl, { cache: 'no-store' });
             if (response.ok) {
                 const text = await response.text();
                 if (text) return JSON.parse(text);
             }
         }
 
-        // Priority 3: Use list() as last resort (has eventual consistency delay)
+        // Priority 3: Use list() as last resort
         const { list } = blobClient;
         const prefix = BLOB_PATHS[key];
         const blobs = await list({ prefix });
@@ -103,7 +112,6 @@ const readBlobJson = async (key, fallback, knownUrl) => {
                 new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
             );
             const latest = sorted[0];
-            blobUrlCache[key] = latest.url;
             const response = await fetch(latest.url, { cache: 'no-store' });
             if (response.ok) {
                 const text = await response.text();
@@ -131,11 +139,6 @@ const writeBlobJson = async (key, data) => {
             contentType: "application/json",
             addRandomSuffix: false
         });
-
-        // Cache the URL for this invocation
-        if (result && result.url) {
-            blobUrlCache[key] = result.url;
-        }
 
         return { url: result.url };
     } catch (error) {
