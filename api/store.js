@@ -84,13 +84,17 @@ const getBlobPublicUrl = (key) => {
 const readBlobJson = async (key, fallback, knownUrl) => {
     if (!blobClient) return fallback;
     try {
-        // Priority 1: Use known URL from client (fastest, no eventual consistency)
+        // Priority 1: If client provided a known URL, use ONLY that.
+        // This is critical because list() may return stale data due to eventual consistency.
         if (knownUrl) {
             const response = await fetch(knownUrl, { cache: 'no-store' });
             if (response.ok) {
                 const text = await response.text();
                 if (text) return JSON.parse(text);
             }
+            // If known URL fails, return fallback instead of falling back to list()
+            // to avoid overwriting fresh data with stale list() results
+            return fallback;
         }
 
         // Priority 2: Use fixed public URL (no list() needed, instant consistency)
@@ -103,7 +107,7 @@ const readBlobJson = async (key, fallback, knownUrl) => {
             }
         }
 
-        // Priority 3: Use list() as last resort
+        // Priority 3: Use list() as last resort (has eventual consistency delay)
         const { list } = blobClient;
         const prefix = BLOB_PATHS[key];
         const blobs = await list({ prefix });

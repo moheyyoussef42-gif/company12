@@ -68,8 +68,9 @@ module.exports = async (req, res) => {
                 return;
             }
 
-            const bookings = await getValue("bookings", []);
-            const list = Array.isArray(bookings) ? bookings : [];
+            // Read fresh state before modifying to avoid lost updates
+            const currentBookings = await getValue("bookings", []);
+            const list = Array.isArray(currentBookings) ? currentBookings : [];
 
             if (isSlotTaken(list, newBooking.date, newBooking.time)) {
                 sendJson(res, 409, { error: "This slot is already booked." });
@@ -78,8 +79,8 @@ module.exports = async (req, res) => {
 
             list.push(newBooking);
             const result = await setValue("bookings", list);
-            // Return the new blob URL so the client can cache it
-            sendJson(res, 201, { booking: newBooking, blobUrl: result.url });
+            // Return the new blob URL + full bookings so client can replace local state
+            sendJson(res, 201, { bookings: list, blobUrl: result.url });
         } catch (error) {
             sendJson(res, 400, { error: error.message });
         }
