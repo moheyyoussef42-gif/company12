@@ -51,7 +51,9 @@ module.exports = async (req, res) => {
     }
 
     if (req.method === "GET") {
-        const bookings = await getValue("bookings", []);
+        // Accept a knownUrl query param to bypass list() eventual consistency
+        const knownUrl = req.url ? new URL(req.url, `http://${req.headers.host}`).searchParams.get("url") : null;
+        const bookings = await getValue("bookings", [], knownUrl);
         sendJson(res, 200, Array.isArray(bookings) ? bookings : []);
         return;
     }
@@ -73,8 +75,9 @@ module.exports = async (req, res) => {
             }
 
             list.push(newBooking);
-            await setValue("bookings", list);
-            sendJson(res, 201, newBooking);
+            const result = await setValue("bookings", list);
+            // Return the new blob URL so the client can cache it
+            sendJson(res, 201, { booking: newBooking, blobUrl: result.url });
         } catch (error) {
             sendJson(res, 400, { error: error.message });
         }
@@ -100,8 +103,8 @@ module.exports = async (req, res) => {
                 seen.add(key);
             }
 
-            await setValue("bookings", payload);
-            sendJson(res, 200, payload);
+            const result = await setValue("bookings", payload);
+            sendJson(res, 200, { bookings: payload, blobUrl: result.url });
         } catch (error) {
             sendJson(res, 400, { error: error.message });
         }

@@ -27,9 +27,6 @@ if (hasBlob) {
     }
 }
 
-// In-memory cache for blob URLs (avoids eventual consistency delay of list())
-const blobUrlCache = {};
-
 const ensureDataDir = () => {
     if (!fs.existsSync(DATA_DIR)) {
         fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -66,28 +63,36 @@ const BLOB_PATHS = {
     settings: "data/settings.json"
 };
 
-const readBlobJson = async (key, fallback) => {
+// Use shorter prefix for listing
+const BLOB_PREFIXES = {
+    bookings: "data/bookings",
+    settings: "data/settings"
+};
+
+const readBlobJson = async (key, fallback, knownUrl) => {
     if (!blobClient) return fallback;
     try {
-        // First try the cached URL (fastest, no eventual consistency issue)
-        if (blobUrlCache[key]) {
-            const response = await fetch(blobUrlCache[key], { cache: 'no-store' });
+        // If we have a known URL, use it directly (fastest, no eventual consistency issue)
+        if (knownUrl) {
+            const response = await fetch(knownUrl, { cache: 'no-store' });
             if (response.ok) {
                 const text = await response.text();
                 if (text) return JSON.parse(text);
             }
         }
 
-        // Fallback: use list() to find the blob
+        // Fallback: use list() to find the latest blob
         const { list } = blobClient;
-        const pathname = BLOB_PATHS[key];
-        const blobs = await list({ prefix: pathname });
+        const prefix = BLOB_PREFIXES[key];
+        const blobs = await list({ prefix });
         if (!blobs || blobs.blobs.length === 0) {
             return fallback;
         }
-        const latest = blobs.blobs[0];
-        // Cache the URL for next time
-        blobUrlCache[key] = latest.url;
+        // Sort by uploadedAt to get the latest
+        const sorted = [...blobs.blobs].sort((a, b) =>
+            new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+        );
+        const latest = sorted[0];
         const response = await fetch(latest.url, { cache: 'no-store' });
         if (!response.ok) return fallback;
         const text = await response.text();
@@ -100,36 +105,33 @@ const readBlobJson = async (key, fallback) => {
 };
 
 const writeBlobJson = async (key, data) => {
-    if (!blobClient) return;
+    if (!blobClient) return { url: null };
     try {
         const { put } = blobClient;
         const pathname = BLOB_PATHS[key];
         const dataStr = JSON.stringify(data, null, 2);
 
-        // put() returns the blob URL immediately - save it to cache
-        // so subsequent reads can use it directly without list() (which has eventual consistency delay)
+        // Use addRandomSuffix to bypass CDN cache (each write creates a new URL)
         const result = await put(pathname, dataStr, {
             access: "public",
             contentType: "application/json",
-            addRandomSuffix: false
+            addRandomSuffix: true
         });
 
-        // Cache the URL returned by put() for instant reads
-        if (result && result.url) {
-            blobUrlCache[key] = result.url;
-        }
+        return { url: result.url };
     } catch (error) {
         console.error(`Failed to write blob ${key}:`, error);
+        return { url: null };
     }
 };
 
-const getValue = async (key, fallback) => {
+const getValue = async (key, fallback, knownUrl) => {
     if (kvClient) {
         const value = await kvClient.get(key);
         return value ?? fallback;
     }
     if (blobClient) {
-        return await readBlobJson(key, fallback);
+        return await readBlobJson(key, fallback, knownUrl);
     }
     return readLocalJson(`${key}.json`, fallback);
 };
@@ -137,13 +139,13 @@ const getValue = async (key, fallback) => {
 const setValue = async (key, data) => {
     if (kvClient) {
         await kvClient.set(key, data);
-        return;
+        return { url: null };
     }
     if (blobClient) {
-        await writeBlobJson(key, data);
-        return;
+        return await writeBlobJson(key, data);
     }
     writeLocalJson(`${key}.json`, data);
+    return { url: null };
 };
 
 module.exports = {
