@@ -54,7 +54,9 @@ module.exports = async (req, res) => {
         // Accept a knownUrl query param to bypass list() eventual consistency
         const knownUrl = req.url ? new URL(req.url, `http://${req.headers.host}`).searchParams.get("url") : null;
         const bookings = await getValue("bookings", [], knownUrl);
-        sendJson(res, 200, Array.isArray(bookings) ? bookings : []);
+        // Return blobUrl so the client can cache it for instant reads
+        const blobUrl = knownUrl || null;
+        sendJson(res, 200, { bookings: Array.isArray(bookings) ? bookings : [], blobUrl });
         return;
     }
 
