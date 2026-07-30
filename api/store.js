@@ -69,6 +69,8 @@ const BLOB_PREFIXES = {
     settings: "data/settings"
 };
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 const readBlobJson = async (key, fallback, knownUrl) => {
     if (!blobClient) return fallback;
     try {
@@ -82,22 +84,30 @@ const readBlobJson = async (key, fallback, knownUrl) => {
         }
 
         // Fallback: use list() to find the latest blob
+        // Retry up to 5 times with 1s delay to handle Blob eventual consistency
         const { list } = blobClient;
         const prefix = BLOB_PREFIXES[key];
-        const blobs = await list({ prefix });
-        if (!blobs || blobs.blobs.length === 0) {
-            return fallback;
+        
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const blobs = await list({ prefix });
+            if (blobs && blobs.blobs.length > 0) {
+                // Sort by uploadedAt to get the latest
+                const sorted = [...blobs.blobs].sort((a, b) =>
+                    new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+                );
+                const latest = sorted[0];
+                const response = await fetch(latest.url, { cache: 'no-store' });
+                if (response.ok) {
+                    const text = await response.text();
+                    if (text) return JSON.parse(text);
+                }
+            }
+            // Wait 1 second before retrying (Blob eventual consistency)
+            if (attempt < 4) {
+                await sleep(1000);
+            }
         }
-        // Sort by uploadedAt to get the latest
-        const sorted = [...blobs.blobs].sort((a, b) =>
-            new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
-        );
-        const latest = sorted[0];
-        const response = await fetch(latest.url, { cache: 'no-store' });
-        if (!response.ok) return fallback;
-        const text = await response.text();
-        if (!text) return fallback;
-        return JSON.parse(text);
+        return fallback;
     } catch (error) {
         console.error(`Failed to read blob ${key}:`, error);
         return fallback;
