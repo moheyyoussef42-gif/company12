@@ -1,118 +1,112 @@
-const fs = require("fs");
-const path = require("path");
-const os = require("os");
-
-const seedDataDir = path.join(__dirname, "..", "data");
-const runtimeDataDir = path.join(os.tmpdir(), "pitch-booking-app-data");
-const runtimeBookingsFile = path.join(runtimeDataDir, "bookings.json");
-const seedBookingsFile = path.join(seedDataDir, "bookings.json");
-
-const ensureRuntimeDir = () => {
-  if (!fs.existsSync(runtimeDataDir)) {
-    fs.mkdirSync(runtimeDataDir, { recursive: true });
-  }
-};
-
-const ensureBookingsFile = () => {
-  ensureRuntimeDir();
-  if (!fs.existsSync(runtimeBookingsFile)) {
-    if (fs.existsSync(seedBookingsFile)) {
-      fs.copyFileSync(seedBookingsFile, runtimeBookingsFile);
-    } else {
-      fs.writeFileSync(runtimeBookingsFile, "[]", "utf8");
-    }
-  }
-};
-
-const readJson = (filePath, fallback) => {
-  try {
-    const content = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(content);
-  } catch (error) {
-    return fallback;
-  }
-};
-
-const writeJson = (filePath, data) => {
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
-};
+const { getValue, setValue } = require("./store");
 
 const sendJson = (res, statusCode, payload) => {
-  res.statusCode = statusCode;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.end(JSON.stringify(payload));
+    res.statusCode = statusCode;
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    // Prevent caching so all devices always get fresh data
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.end(JSON.stringify(payload));
 };
 
 const readBody = (req) => {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk.toString();
+    return new Promise((resolve, reject) => {
+        let body = "";
+        req.on("data", (chunk) => {
+            body += chunk.toString();
+        });
+        req.on("end", () => {
+            if (!body) {
+                resolve(null);
+                return;
+            }
+            try {
+                resolve(JSON.parse(body));
+            } catch (error) {
+                reject(new Error("Invalid JSON body"));
+            }
+        });
+        req.on("error", reject);
     });
-    req.on("end", () => {
-      if (!body) {
-        resolve({});
-        return;
-      }
-      try {
-        resolve(JSON.parse(body));
-      } catch (error) {
-        reject(new Error("Invalid JSON body"));
-      }
-    });
-    req.on("error", reject);
-  });
+};
+
+const isSlotTaken = (bookings, date, time, excludeId) => {
+    return bookings.some(
+        (booking) =>
+            booking.date === date &&
+            booking.time === time &&
+            booking.status !== "cancelled" &&
+            booking.id !== excludeId
+    );
 };
 
 module.exports = async (req, res) => {
-  if (req.method === "OPTIONS") {
-    sendJson(res, 204, { ok: true });
-    return;
-  }
-
-  ensureBookingsFile();
-
-  if (req.method === "GET") {
-    const bookings = readJson(runtimeBookingsFile, []);
-    sendJson(res, 200, bookings);
-    return;
-  }
-
-  if (req.method === "PUT") {
-    try {
-      const payload = await readBody(req);
-      if (!Array.isArray(payload)) {
-        sendJson(res, 400, { error: "Payload must be an array of bookings." });
+    if (req.method === "OPTIONS") {
+        sendJson(res, 204, { ok: true });
         return;
-      }
-      writeJson(runtimeBookingsFile, payload);
-      sendJson(res, 200, payload);
-    } catch (error) {
-      sendJson(res, 400, { error: error.message });
     }
-    return;
-  }
 
-  if (req.method === "POST") {
-    try {
-      const payload = await readBody(req);
-      const bookings = readJson(runtimeBookingsFile, []);
-      const newBooking = payload && typeof payload === "object" ? payload : null;
-      if (!newBooking) {
-        sendJson(res, 400, { error: "Missing booking payload." });
+    if (req.method === "GET") {
+        const bookings = await getValue("bookings", []);
+        sendJson(res, 200, Array.isArray(bookings) ? bookings : []);
         return;
-      }
-      bookings.push(newBooking);
-      writeJson(runtimeBookingsFile, bookings);
-      sendJson(res, 201, bookings);
-    } catch (error) {
-      sendJson(res, 400, { error: error.message });
     }
-    return;
-  }
 
-  sendJson(res, 405, { error: "Method not allowed" });
+    if (req.method === "POST") {
+        try {
+            const newBooking = await readBody(req);
+            if (!newBooking || !newBooking.date || !newBooking.time) {
+                sendJson(res, 400, { error: "Missing booking data." });
+                return;
+            }
+
+            const bookings = await getValue("bookings", []);
+            const list = Array.isArray(bookings) ? bookings : [];
+
+            if (isSlotTaken(list, newBooking.date, newBooking.time)) {
+                sendJson(res, 409, { error: "This slot is already booked." });
+                return;
+            }
+
+            list.push(newBooking);
+            await setValue("bookings", list);
+            sendJson(res, 201, newBooking);
+        } catch (error) {
+            sendJson(res, 400, { error: error.message });
+        }
+        return;
+    }
+
+    if (req.method === "PUT") {
+        try {
+            const payload = await readBody(req);
+            if (!Array.isArray(payload)) {
+                sendJson(res, 400, { error: "Payload must be an array of bookings." });
+                return;
+            }
+
+            const seen = new Set();
+            for (const booking of payload) {
+                if (booking.status === "cancelled") continue;
+                const key = `${booking.date}|${booking.time}`;
+                if (seen.has(key)) {
+                    sendJson(res, 409, { error: "Duplicate slot in payload." });
+                    return;
+                }
+                seen.add(key);
+            }
+
+            await setValue("bookings", payload);
+            sendJson(res, 200, payload);
+        } catch (error) {
+            sendJson(res, 400, { error: error.message });
+        }
+        return;
+    }
+
+    sendJson(res, 405, { error: "Method not allowed" });
 };

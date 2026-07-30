@@ -10,6 +10,7 @@ let selectedDateIndex = 0;
 let selectedSlotTime = "";
 let selectedDateString = "";
 let currentAdminFilter = "all";
+let activeSettingsTab = sessionStorage.getItem("adminSettingsTab") || "days";
 
 // Days of the week in Arabic
 const ARABIC_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
@@ -53,7 +54,7 @@ const loadSettings = () => {
 
 const loadSettingsFromServer = async () => {
     try {
-        const response = await fetch("/api/settings");
+        const response = await fetch(`/api/settings?_=${Date.now()}`);
         if (!response.ok) throw new Error("Failed to load settings");
         const serverSettings = await response.json();
         adminSettings = { ...DEFAULT_SETTINGS, ...serverSettings };
@@ -143,31 +144,43 @@ document.addEventListener("DOMContentLoaded", async () => {
 
 const refreshLiveData = async () => {
     try {
+        const adminDashboardOpen = !document.getElementById("modal-admin-dashboard").classList.contains("hidden");
+
+        // Add cache-busting query param to ensure fresh data on every device
+        const cacheBuster = `_=${Date.now()}`;
         const [bookingsResponse, settingsResponse] = await Promise.all([
-            fetch("/api/bookings"),
-            fetch("/api/settings")
+            fetch(`/api/bookings?${cacheBuster}`),
+            fetch(`/api/settings?${cacheBuster}`)
         ]);
 
         if (bookingsResponse.ok) {
             const serverBookings = await bookingsResponse.json();
-            bookings = Array.isArray(serverBookings) ? serverBookings : [];
-            localStorage.setItem("mal3abak_bookings", JSON.stringify(bookings));
+            if (Array.isArray(serverBookings)) {
+                // Merge: keep local bookings that aren't in server response yet
+                // (due to Blob propagation delay, server may return stale data)
+                const serverIds = new Set(serverBookings.map(b => b.id));
+                const localOnly = bookings.filter(b => !serverIds.has(b.id));
+                bookings = [...serverBookings, ...localOnly];
+                localStorage.setItem("mal3abak_bookings", JSON.stringify(bookings));
+            }
         }
 
-        if (settingsResponse.ok) {
+        if (settingsResponse.ok && !adminDashboardOpen) {
             const serverSettings = await settingsResponse.json();
             adminSettings = { ...DEFAULT_SETTINGS, ...serverSettings };
             localStorage.setItem("adminSettings", JSON.stringify(adminSettings));
         }
 
-        renderDateTabs();
-        renderSlots();
+        // Skip user-facing re-renders when admin dashboard is open to prevent tab reset issues
+        if (!adminDashboardOpen) {
+            renderDateTabs();
+            renderSlots();
+        }
         updatePriceDisplays();
 
-        if (sessionStorage.getItem("adminLoggedIn") === "true") {
+        if (adminDashboardOpen && sessionStorage.getItem("adminLoggedIn") === "true") {
             renderAdminStats();
             renderAdminBookingsList();
-            renderAdminSettings();
         }
     } catch (e) {
         console.error("Failed to refresh live data", e);
@@ -185,7 +198,7 @@ const updatePriceDisplays = () => {
 // Load data from localStorage
 const loadBookingsFromStorage = async () => {
     try {
-        const response = await fetch("/api/bookings");
+        const response = await fetch(`/api/bookings?_=${Date.now()}`);
         if (!response.ok) throw new Error("Failed to load bookings");
         const serverBookings = await response.json();
         bookings = Array.isArray(serverBookings) ? serverBookings : [];
@@ -345,14 +358,6 @@ const handleBookingSubmit = async (e) => {
         return;
     }
 
-    const alreadyBooked = bookings.some(b => b.date === selectedDateString && b.time === selectedSlotTime && b.status !== "cancelled");
-    if (alreadyBooked) {
-        showToast("عذراً، هذا الموعد تم حجزه للتو!", true);
-        closeModal("modal-booking");
-        renderSlots();
-        return;
-    }
-
     const newBooking = {
         id: "b_" + Date.now(),
         name,
@@ -363,8 +368,38 @@ const handleBookingSubmit = async (e) => {
         status: "pending"
     };
 
-    bookings.push(newBooking);
-    await saveBookingsToStorage();
+    try {
+        const response = await fetch("/api/bookings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(newBooking)
+        });
+
+        if (response.status === 409) {
+            showToast("عذراً، هذا الموعد تم حجزه للتو!", true);
+            closeModal("modal-booking");
+            await refreshLiveData();
+            return;
+        }
+
+        if (!response.ok) throw new Error("Failed to save booking");
+
+        // Optimistic update: add booking to local array immediately
+        // (don't wait for GET which may return stale data due to Blob propagation delay)
+        bookings.push(newBooking);
+        localStorage.setItem("mal3abak_bookings", JSON.stringify(bookings));
+    } catch (e) {
+        const alreadyBooked = bookings.some(b => b.date === selectedDateString && b.time === selectedSlotTime && b.status !== "cancelled");
+        if (alreadyBooked) {
+            showToast("عذراً، هذا الموعد تم حجزه للتو!", true);
+            closeModal("modal-booking");
+            renderSlots();
+            return;
+        }
+        bookings.push(newBooking);
+        await saveBookingsToStorage();
+    }
+
     closeModal("modal-booking");
     renderSlots();
     showToast("🎉 تم إرسال طلب الحجز بنجاح! بانتظار مراجعة المسؤول.");
@@ -556,21 +591,21 @@ const renderAdminSettings = () => {
     container.innerHTML = `
         <!-- Tab Navigation -->
         <div class="settings-tabs">
-            <button class="settings-tab active" data-tab="days">📅 الأيام</button>
-            <button class="settings-tab" data-tab="times">🕐 المواعيد</button>
-            <button class="settings-tab" data-tab="dates">📆 التواريخ</button>
-            <button class="settings-tab" data-tab="pricing">💰 السعر</button>
+            <button class="settings-tab ${activeSettingsTab === "days" ? "active" : ""}" data-tab="days">📅 الأيام</button>
+            <button class="settings-tab ${activeSettingsTab === "times" ? "active" : ""}" data-tab="times">🕐 المواعيد</button>
+            <button class="settings-tab ${activeSettingsTab === "dates" ? "active" : ""}" data-tab="dates">📆 التواريخ</button>
+            <button class="settings-tab ${activeSettingsTab === "pricing" ? "active" : ""}" data-tab="pricing">💰 السعر</button>
         </div>
 
         <!-- Days Tab -->
-        <div class="settings-content active" id="tab-days">
+        <div class="settings-content ${activeSettingsTab === "days" ? "active" : ""}" id="tab-days">
             <h4>تفعيل / إلغاء أيام الأسبوع</h4>
             <p class="settings-desc">اختر الأيام اللي المستخدمين يقدروا يحجزوا فيها</p>
             <div class="day-toggles-grid" id="day-toggles-grid"></div>
         </div>
 
         <!-- Times Tab -->
-        <div class="settings-content" id="tab-times">
+        <div class="settings-content ${activeSettingsTab === "times" ? "active" : ""}" id="tab-times">
             <h4>إدارة المواعيد المتاحة</h4>
             <p class="settings-desc">أضف أو احذف مواعيد الحجز المتاحة</p>
             <div class="time-slots-list" id="time-slots-list"></div>
@@ -598,7 +633,7 @@ const renderAdminSettings = () => {
         </div>
 
         <!-- Dates Tab -->
-        <div class="settings-content" id="tab-dates">
+        <div class="settings-content ${activeSettingsTab === "dates" ? "active" : ""}" id="tab-dates">
             <h4>التحكم في التواريخ</h4>
             <p class="settings-desc">حدد عدد الأيام اللي تظهر للمستخدمين وامنع تواريخ معينة</p>
             <div class="dates-control">
@@ -622,7 +657,7 @@ const renderAdminSettings = () => {
         </div>
 
         <!-- Pricing Tab -->
-        <div class="settings-content" id="tab-pricing">
+        <div class="settings-content ${activeSettingsTab === "pricing" ? "active" : ""}" id="tab-pricing">
             <h4>سعر الساعة</h4>
             <p class="settings-desc">عدّل سعر حجز الساعة الواحدة بالجنيه المصري</p>
             <div class="price-control">
@@ -659,6 +694,8 @@ const initSettingsTabs = () => {
     const tabs = document.querySelectorAll(".settings-tab");
     tabs.forEach(tab => {
         tab.addEventListener("click", () => {
+            activeSettingsTab = tab.dataset.tab;
+            sessionStorage.setItem("adminSettingsTab", activeSettingsTab);
             tabs.forEach(t => t.classList.remove("active"));
             document.querySelectorAll(".settings-content").forEach(c => c.classList.remove("active"));
             tab.classList.add("active");
